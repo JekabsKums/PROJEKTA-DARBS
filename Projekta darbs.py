@@ -30,13 +30,17 @@ def remove_game(game_id): # Izdzēš spēli no datubāzes
     conn.close()
     load_games()
 
-def load_games(): # Ielādē visas spēles no datubāzes
+def load_games(query=None): # Ielādē visas spēles no datubāzes
     for widget in frame.winfo_children():
         widget.destroy()
     
     conn = sqlite3.connect("games.db")
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM games")
+    if query and query.strip():
+        cursor.execute("SELECT * FROM games WHERE title LIKE ?", (f'%{query.strip()}%',))
+    else:
+        cursor.execute("SELECT * FROM games")
     games = cursor.fetchall()
     conn.close()
     
@@ -51,7 +55,7 @@ def load_games(): # Ielādē visas spēles no datubāzes
         frame_card = ttk.Frame(frame, padding=5, relief="ridge")
         frame_card.grid(row=idx // 4, column=idx % 4, padx=10, pady=10)
         label_img = tk.Label(frame_card, image=img)
-        label_img.image = img  # Keep a reference
+        label_img.image = img  # Saglabā attēlu atmiņā
         label_img.pack()
         label_title = tk.Label(frame_card, text=title)
         label_title.pack()
@@ -81,11 +85,29 @@ def add_game_popup(): # Pievieno spēli
 def about_popup(): # Par programmu
     tk.messagebox.showinfo("About", "Datorspēļu kolekcijas pārvaldnieka programmatūra.\nVeidoja Renārs Gricjus, Jēkabs Kūms un Kristiāns Kalniņš, 12.a, ZMGV, 2024./2025.")
 
+def filter_games():
+    query = search_entry.get()
+    load_games(query)
+
+def clear_filter():
+    search_entry.delete(0, tk.END)
+    load_games()
+
+
 # GUI izveide
 root = tk.Tk()
 root.title("Game Collection")
 root.geometry("600x400")
 root.minsize(400, 300) # Minimālais loga izmērs
+
+filter_frame = ttk.Frame(root, padding=10)
+filter_frame.pack(side="top", fill="x")
+ttk.Label(filter_frame, text="Filter by Title:").pack(side="left")
+search_entry = ttk.Entry(filter_frame)
+search_entry.pack(side="left", padx=(5,5))
+ttk.Button(filter_frame, text="Filter", command=filter_games).pack(side="left", padx=(5,5))
+ttk.Button(filter_frame, text="Clear Filter", command=clear_filter).pack(side="left")
+
 
 style = ttk.Style()
 style.configure("TFrame", background="#f0f0f0")
