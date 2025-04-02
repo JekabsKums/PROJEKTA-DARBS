@@ -2,12 +2,44 @@ import sqlite3
 import tkinter as tk
 from tkinter import ttk, filedialog
 from PIL import Image, ImageTk
+import os
+from cryptography.fernet import Fernet
+
+class EncryptionManager:
+    """ Klase, kas pārvalda šifrēšanu un atšifrēšanu"""
+    def __init__(self, key_file = "secret.key"):
+        self.key_file = key_file
+        self.key = self.load_or_gen_key()
+        self.fernet = Fernet(self.key)
+
+    def load_or_gen_key(self):
+        if os.path.exists(self.key_file):
+            with open(self.key_file, "rb") as key_file:
+                return key_file.read()
+        else:
+            key = Fernet.generate_key()
+            with open(self.key_file, "wb") as key_file:
+                key_file.write(key)
+            return key
+        
+    def encrypt(self, message):
+        if isinstance(message, str):
+            message = message.encode()
+        return self.fernet.encrypt(message).decode()
+    
+    def decrypt(self, token):
+        try:
+            return self.fernet.decrypt(token.encode()).decode()
+        except Exception as e:
+            print(f"Decryption error: {e}")
+            return token
 
 # Datubāzes darbības
 class DatabaseManager:
     """ Klase, kas pārvalda datubāzi  """
     def __init__(self, db_name="games.db"):
         self.db_name = db_name
+        self.encryption_manager = EncryptionManager()
         self.init_db()
 
     def connect(self):
@@ -32,8 +64,9 @@ class DatabaseManager:
     def add_developer(self, name): # Pievieno izstrādātāju datubāzei
         conn = self.connect()
         cursor = conn.cursor()
+        encryption_dev = self.encryption_manager.encrypt(name)
         try:
-            cursor.execute("INSERT INTO developers (name) VALUES (?)", (name,))
+            cursor.execute("INSERT INTO developers (name) VALUES (?)", (encryption_dev,))
             conn.commit()
         except sqlite3.IntegrityError: # Izstrādātājs jau eksistē
             pass 
@@ -53,12 +86,15 @@ class DatabaseManager:
         cursor = conn.execute("SELECT id, name FROM developers")
         developers = cursor.fetchall()
         conn.close()
-        return developers
+        decry_dev = [(dev_id, self.encryption_manager.decrypt(dev_name)) for dev_id, dev_name in developers] # Atšifrē izstrādātāju nosaukumus
+        return decry_dev
 
     def add_game(self, title, image_path, developer_id): # Pievieno spēli datubāzei
         conn = self.connect()
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO games (title, image_path, developer_id) VALUES (?, ?, ?)", (title, image_path, developer_id))
+        encry_title = self.encryption_manager.encrypt(title) # Šifrē spēles nosaukumu
+        encry_image_path = self.encryption_manager.encrypt(image_path) # Šifrē attēla ceļu
+        cursor.execute("INSERT INTO games (title, image_path, developer_id) VALUES (?, ?, ?)", (encry_title, encry_image_path, developer_id))
         conn.commit()
         conn.close()
         
@@ -74,25 +110,28 @@ class DatabaseManager:
     def get_games(self, query=None): # Ielādē visas spēles no datubāzes
         conn = self.connect()
         cursor = conn.cursor()
-        if query and query.strip():
-            cursor.execute("""SELECT games.id, games.title, games.image_path, developers.name
+        cursor.execute("""SELECT games.id, games.title, games.image_path, developers.name
                             FROM games
                             LEFT JOIN developers ON games.developer_id = developers.id
-                            WHERE games.title LIKE ?""", (f'%{query.strip()}%',))
-        else:
-            cursor.execute("""SELECT games.id, games.title, games.image_path, developers.name
-                            FROM games
-                            LEFT JOIN developers ON games.developer_id = developers.id""")
+                           """)
         games = cursor.fetchall()
         conn.close()
-        return games
+        decry_games = []
+        for game_id, encry_title, encry_image_path, encry_dev in games:
+            title = self.encryption_manager.decrypt(encry_title)
+            image_path = self.encryption_manager.decrypt(encry_image_path)
+            dev_name = self.encryption_manager.decrypt(encry_dev) if encry_dev is not None else None
+            decry_games.append((game_id, title, image_path,dev_name))
+        if query and query.strip():
+            decry_games = [game for game in decry_games if query.strip().lower() in game[1].lower()] # Filtrē spēles pēc nosaukuma
+        return decry_games
     
 class GameCollectionApp:
     """Klase GUI izveidei"""
     def __init__(self, root): # GUI izveide
         self.root = root
-        root.title("Game Collection")
-        root.geometry("600x550") # Loga izmērs
+        self.root.title("Game Collection")
+        self.root.geometry("600x550") # Loga izmērs
         self.db = DatabaseManager()
         self.setup_ui()
         self.load_games()
@@ -151,7 +190,7 @@ class GameCollectionApp:
             label_title = tk.Label(frame_card, text=title)
             label_title.pack()
             if dev_name:
-                label_dev = tk.Label(frame_card, text = f"Developer: {dev_name}", font=(None, 8, 'italic'))
+                label_dev = ttk.Label(frame_card, text = f"Developer: {dev_name}", font=(None, 8, 'italic'))
                 label_dev.pack()
             btn_delete = ttk.Button(frame_card, text="Remove", command=lambda gid=game_id: self.remove_game(gid))
             btn_delete.pack()
