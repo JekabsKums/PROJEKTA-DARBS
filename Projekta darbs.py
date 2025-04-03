@@ -56,6 +56,7 @@ class DatabaseManager:
                         id INTEGER PRIMARY KEY,
                         title TEXT,
                         image_path TEXT,
+                        description TEXT,
                         developer_id INTEGER,
                         FOREIGN KEY (developer_id) REFERENCES developers(id) ON DELETE SET NULL)''') # Spēļu tabula
         conn.commit()
@@ -89,12 +90,13 @@ class DatabaseManager:
         decry_dev = [(dev_id, self.encryption_manager.decrypt(dev_name)) for dev_id, dev_name in developers] # Atšifrē izstrādātāju nosaukumus
         return decry_dev
 
-    def add_game(self, title, image_path, developer_id): # Pievieno spēli datubāzei
+    def add_game(self, title, image_path, description, developer_id): # Pievieno spēli datubāzei
         conn = self.connect()
         cursor = conn.cursor()
         encry_title = self.encryption_manager.encrypt(title) # Šifrē spēles nosaukumu
         encry_image_path = self.encryption_manager.encrypt(image_path) # Šifrē attēla ceļu
-        cursor.execute("INSERT INTO games (title, image_path, developer_id) VALUES (?, ?, ?)", (encry_title, encry_image_path, developer_id))
+        encry_description = self.encryption_manager.encrypt(description) # Šifrē spēles aprakstu
+        cursor.execute("INSERT INTO games (title, image_path, description, developer_id) VALUES (?, ?, ?, ?)", (encry_title, encry_image_path, encry_description, developer_id))
         conn.commit()
         conn.close()
         
@@ -110,18 +112,19 @@ class DatabaseManager:
     def get_games(self, query=None): # Ielādē visas spēles no datubāzes
         conn = self.connect()
         cursor = conn.cursor()
-        cursor.execute("""SELECT games.id, games.title, games.image_path, developers.name
+        cursor.execute("""SELECT games.id, games.title, games.image_path, games.description, developers.name
                             FROM games
                             LEFT JOIN developers ON games.developer_id = developers.id
                            """)
         games = cursor.fetchall()
         conn.close()
         decry_games = []
-        for game_id, encry_title, encry_image_path, encry_dev in games:
+        for game_id, encry_title, encry_image_path, encry_description, encry_dev in games:
             title = self.encryption_manager.decrypt(encry_title)
             image_path = self.encryption_manager.decrypt(encry_image_path)
+            description = self.encryption_manager.decrypt(encry_description) if encry_description is not None else None
             dev_name = self.encryption_manager.decrypt(encry_dev) if encry_dev is not None else None
-            decry_games.append((game_id, title, image_path,dev_name))
+            decry_games.append((game_id, title, image_path, description, dev_name))
         if query and query.strip():
             decry_games = [game for game in decry_games if query.strip().lower() in game[1].lower()] # Filtrē spēles pēc nosaukuma
         return decry_games
@@ -174,7 +177,7 @@ class GameCollectionApp:
         for widget in self.frame.winfo_children():
             widget.destroy()
         games = self.db.get_games(query)
-        for idx, (game_id, title, image_path, dev_name) in enumerate(games):
+        for idx, (game_id, title, image_path, description,  dev_name) in enumerate(games):
             try:
                 img = Image.open(image_path)
                 img = img.resize((100, 150))
@@ -187,14 +190,20 @@ class GameCollectionApp:
             label_img = tk.Label(frame_card, image=img)
             label_img.image = img  # Saglabā attēlu atmiņā
             label_img.pack()
-            label_title = tk.Label(frame_card, text=title)
-            label_title.pack()
+            ttk.Label(frame_card, text=title, font=("Helvetica", 10, "bold")).pack(pady=(5,0))
             if dev_name:
-                label_dev = ttk.Label(frame_card, text = f"Developer: {dev_name}", font=(None, 8, 'italic'))
-                label_dev.pack()
-            btn_delete = ttk.Button(frame_card, text="Remove", command=lambda gid=game_id: self.remove_game(gid))
-            btn_delete.pack()
-    
+                ttk.Label(frame_card, text = f"Developer: {dev_name}", font=(None, 8, 'italic')).pack()
+            ttk.Button(frame_card, text="Apraksts", command=lambda desc=description: self.view_description(desc)).pack(pady=(5))
+            ttk.Button(frame_card, text="Remove", command=lambda gid=game_id: self.remove_game(gid)).pack()
+            
+    def view_description(self, description): # Parāda spēles aprakstu
+        popup = tk.Toplevel(self.root)
+        popup.title("Spēles apraksts")
+        text_widget = tk.Text(popup, wrap="word", width=50, height=10)
+        text_widget.insert("1.0", description)
+        text_widget.config(state="disabled")
+        text_widget.pack(padx=10, pady=10)
+
     def remove_game(self, game_id):
         self.db.remove_game(game_id)
         self.load_games()
@@ -206,6 +215,10 @@ class GameCollectionApp:
         entry_title = ttk.Entry(popup)
         entry_title.pack(pady=(0,10))
 
+        ttk.Label(popup, text="Spēles apraksts:").pack(pady=(0,0))
+        text_desc = tk.Text(popup, wrap="word", width=50, height=10)
+        text_desc.pack(pady=(0,10))
+
         ttk.Label(popup, text="Izvēlaties izstrādātāju:").pack(pady=(0,0))
         developers = self.db.get_developers()
         dev_options = [dev[1]for dev in developers]
@@ -216,6 +229,7 @@ class GameCollectionApp:
 
         def save_game(): # Saglabā spēli
             title = entry_title.get()
+            description = text_desc.get("1.0", "end").strip()
             image_path = self.open_file()
             dev_selection = combo_dev.get()
             developer_id = None
@@ -225,7 +239,7 @@ class GameCollectionApp:
                         developer_id = dev[0]
                         break
             if title and image_path:
-                self.db.add_game(title, image_path, developer_id)
+                self.db.add_game(title, image_path, description, developer_id)
                 popup.destroy()
                 self.load_games()
     
@@ -257,9 +271,9 @@ class GameCollectionApp:
             frame_dev = ttk.Frame(list_frame, padding=5, relief="ridge")
             frame_dev.pack(fill="x", pady=5) 
             ttk.Label(frame_dev, text=name).pack(side="left", padx=5)
-            btn_remove = ttk.Button(frame_dev, text="Noņemt", command=lambda did=dev_id: self.remove_dev_refresh(did, popup))
-            btn_remove.pack(side="right", padx=5)
+            ttk.Button(frame_dev, text="Noņemt", command=lambda did=dev_id: self.remove_dev_refresh(did, popup)).pack(side="right", padx=5)
 
+            
     def remove_dev_refresh(self, dev_id, window):
         self.db.remove_developer(dev_id)
         window.destroy()
