@@ -136,6 +136,7 @@ class GameCollectionApp:
         self.root = root
         self.root.title("Game Collection")
         self.root.geometry("600x550") # Loga izmērs
+        self.root.iconbitmap("icon.ico")
         self.db = DatabaseManager()
         self.setup_ui()
         self.load_games()
