@@ -4,6 +4,7 @@ from tkinter import ttk, filedialog
 from PIL import Image, ImageTk
 import os
 from cryptography.fernet import Fernet
+import unittest
 
 class EncryptionManager:
     """ Klase, kas pārvalda šifrēšanu un atšifrēšanu"""
@@ -292,8 +293,33 @@ class GameCollectionApp:
         self.search_entry.delete(0, tk.END)
         self.load_games()
 
+class TestDatabaseManager(unittest.TestCase):
+    """ Testē datubāzes funkcionalitāti """
+    def setUp(self):
+        self.db = DatabaseManager("test.db")
+        self.db.init_db()
+
+    def tearDown(self):
+        if os.path.exists("test.db"):
+            os.remove("test.db")
+    
+    def test_add_developer(self):
+        self.db.add_developer("Test Developer")
+        developers = self.db.get_developers()
+        self.assertEqual(len(developers), 1)
+        self.assertEqual(developers[0][1], "Test Developer")
+
+    def test_add_game(self):
+        self.db.add_developer("Test Developer")
+        dev_id = self.db.get_developers()[0][0]
+        self.db.add_game("Test Game", "path/to/test_image.png", "Great Game!", dev_id)
+        games = self.db.get_games()
+        self.assertEqual(games[0][1], "Test Game")
+        self.assertEqual(games[0][3], "Great Game!")
+
 
 if __name__ == "__main__":
+    unittest.main(exit=False)
     root = tk.Tk()
     app = GameCollectionApp(root)
     root.mainloop()
